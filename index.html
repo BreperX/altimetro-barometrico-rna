@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Estimación Barométrica de Altitud — RNA</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-canvas: #f4f4f1;
+      --bg-surface: #ffffff;
+      --bg-subtle: #eaeae4;
+      --border-hairline: #d4d4cc;
+      --border-strong: #9e9e94;
+      --text-primary: #161614;
+      --text-secondary: #575751;
+      --text-muted: #7a7a72;
+      --accent-primary: #d94e1f;
+      --accent-secondary: #1e4d6b;
+      --status-warn: #a65e00;
+      --font-sans: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, monospace;
+    }
+
+    *, *::before, *::after {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      padding: 32px 20px;
+      background-color: var(--bg-canvas);
+      color: var(--text-primary);
+      font-family: var(--font-sans);
+      line-height: 1.45;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .app-shell {
+      max-width: 880px;
+      margin: 0 auto;
+    }
+
+    .top-bar {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 12px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--border-hairline);
+      margin-bottom: 24px;
+    }
+
+    .top-bar h1 {
+      font-size: 1.25rem;
+      font-weight: 600;
+      letter-spacing: -0.015em;
+      margin: 0;
+    }
+
+    .arch-tag {
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+      color: var(--text-secondary);
+    }
+
+    .workspace {
+      display: grid;
+      grid-template-columns: 1.15fr 0.85fr;
+      gap: 20px;
+      align-items: stretch;
+    }
+
+    .panel {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-hairline);
+      border-radius: 6px;
+      padding: 24px;
+    }
+
+    .panel-label {
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+      margin: 0 0 18px 0;
+    }
+
+    .sensor-control {
+      margin-bottom: 22px;
+    }
+
+    .sensor-control:last-of-type {
+      margin-bottom: 0;
+    }
+
+    .control-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+
+    .control-header label {
+      font-size: 0.92rem;
+      font-weight: 500;
+      color: var(--text-primary);
+    }
+
+    .input-unit-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .input-unit-group input[type="number"] {
+      width: 92px;
+      padding: 6px 8px;
+      font-family: var(--font-mono);
+      font-variant-numeric: tabular-nums;
+      font-size: 0.92rem;
+      color: var(--text-primary);
+      background: var(--bg-canvas);
+      border: 1px solid var(--border-strong);
+      border-radius: 4px;
+      text-align: right;
+    }
+
+    .input-unit-group input[type="number"]:focus {
+      outline: 2px solid var(--accent-secondary);
+      outline-offset: -1px;
+      background: var(--bg-surface);
+    }
+
+    .unit-tag {
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      color: var(--text-secondary);
+      min-width: 28px;
+    }
+
+    input[type="range"] {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 100%;
+      height: 4px;
+      background: var(--bg-subtle);
+      border: 1px solid var(--border-hairline);
+      border-radius: 2px;
+      cursor: pointer;
+    }
+
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 16px;
+      height: 16px;
+      border-radius: 3px;
+      background: var(--text-primary);
+      border: 2px solid var(--bg-surface);
+      box-shadow: 0 0 0 1px var(--text-primary);
+    }
+
+    input[type="range"]::-moz-range-thumb {
+      width: 16px;
+      height: 16px;
+      border-radius: 3px;
+      background: var(--text-primary);
+      border: 2px solid var(--bg-surface);
+      box-shadow: 0 0 0 1px var(--text-primary);
+    }
+
+    .range-bounds {
+      display: flex;
+      justify-content: space-between;
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      margin-top: 5px;
+    }
+
+    .bound-warning {
+      display: none;
+      font-size: 0.78rem;
+      color: var(--status-warn);
+      margin-top: 6px;
+    }
+
+    .bound-warning.visible {
+      display: block;
+    }
+
+    .telemetry-readout {
+      margin-top: 26px;
+      padding-top: 22px;
+      border-top: 1px solid var(--border-hairline);
+    }
+
+    .primary-metric {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      margin: 6px 0 14px 0;
+    }
+
+    .altitude-number {
+      font-family: var(--font-mono);
+      font-variant-numeric: tabular-nums;
+      font-size: 2.75rem;
+      font-weight: 600;
+      letter-spacing: -0.03em;
+      color: var(--text-primary);
+      line-height: 1;
+    }
+
+    .altitude-unit {
+      font-family: var(--font-mono);
+      font-size: 1rem;
+      color: var(--text-secondary);
+    }
+
+    .comparison-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      padding: 12px;
+      background: var(--bg-canvas);
+      border: 1px solid var(--border-hairline);
+      border-radius: 4px;
+    }
+
+    .comp-item span {
+      display: block;
+      font-size: 0.74rem;
+      color: var(--text-secondary);
+    }
+
+    .comp-item strong {
+      font-family: var(--font-mono);
+      font-variant-numeric: tabular-nums;
+      font-size: 0.92rem;
+      font-weight: 500;
+      color: var(--text-primary);
+    }
+
+    .altimeter-panel {
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+
+    .altimeter-frame {
+      width: 100%;
+      height: 310px;
+      background: var(--bg-canvas);
+      border: 1px solid var(--border-hairline);
+      border-radius: 4px;
+    }
+
+    .model-specs {
+      margin-top: 14px;
+      font-family: var(--font-mono);
+      font-size: 0.74rem;
+      color: var(--text-secondary);
+      display: flex;
+      justify-content: space-between;
+    }
+
+    @media (max-width: 720px) {
+      .workspace {
+        grid-template-columns: 1fr;
+      }
+      .altimeter-frame {
+        height: 240px;
+      }
+    }
+  </style>
+</head>
+<body>
+
+<main class="app-shell">
+  <header class="top-bar">
+    <h1>Altímetro Barométrico Neuronal</h1>
+    <span class="arch-tag">TensorFlow.js · Regresión Barométrica</span>
+  </header>
+
+  <section class="workspace">
+    <div class="panel">
+      <h2 class="panel-label">Entradas de Sensores (Tensor [1, 2])</h2>
+
+      <div class="sensor-control">
+        <div class="control-header">
+          <label for="tempNum">Temperatura ambiental</label>
+          <div class="input-unit-group">
+            <input type="number" id="tempNum" min="-5" max="40" step="0.5" value="20">
+            <span class="unit-tag">°C</span>
+          </div>
+        </div>
+        <input type="range" id="tempRange" min="-5" max="40" step="0.5" value="20" aria-label="Control deslizante de temperatura">
+        <div class="range-bounds">
+          <span>-5.0 °C</span>
+          <span>40.0 °C</span>
+        </div>
+        <div class="bound-warning" id="tempWarn">Valor fuera del dominio de entrenamiento (-5 °C a 40 °C).</div>
+      </div>
+
+      <div class="sensor-control">
+        <div class="control-header">
+          <label for="presNum">Presión atmosférica</label>
+          <div class="input-unit-group">
+            <input type="number" id="presNum" min="650" max="1020" step="0.5" value="900">
+            <span class="unit-tag">hPa</span>
+          </div>
+        </div>
+        <input type="range" id="presRange" min="650" max="1020" step="0.5" value="900" aria-label="Control deslizante de presión atmosférica">
+        <div class="range-bounds">
+          <span>650 hPa</span>
+          <span>1020 hPa</span>
+        </div>
+        <div class="bound-warning" id="presWarn">Valor fuera del dominio de entrenamiento (650 hPa a 1020 hPa).</div>
+      </div>
+
+      <div class="telemetry-readout">
+        <h2 class="panel-label" style="margin-bottom: 4px;">Altitud Inferida por la Red</h2>
+        <div class="primary-metric">
+          <span class="altitude-number" id="predAltitude">---</span>
+          <span class="altitude-unit">m s.n.m.</span>
+        </div>
+
+        <div class="comparison-grid">
+          <div class="comp-item">
+            <span>Ecuación barométrica</span>
+            <strong id="physAltitude">--- m</strong>
+          </div>
+          <div class="comp-item">
+            <span>Desviación absoluta</span>
+            <strong id="deltaAltitude">--- m</strong>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel altimeter-panel">
+      <h2 class="panel-label">Perfil Vertical (0 — 3.000 m)</h2>
+
+      <svg class="altimeter-frame" viewBox="0 0 280 310" role="img" aria-label="Escala vertical de altitud del dron">
+        <g stroke="#d4d4cc" stroke-width="1" stroke-dasharray="3 3">
+          <line x1="58" y1="35" x2="260" y2="35" />
+          <line x1="58" y1="75" x2="260" y2="75" />
+          <line x1="58" y1="115" x2="260" y2="115" />
+          <line x1="58" y1="155" x2="260" y2="155" />
+          <line x1="58" y1="195" x2="260" y2="195" />
+          <line x1="58" y1="235" x2="260" y2="235" />
+        </g>
+
+        <line x1="58" y1="275" x2="260" y2="275" stroke="#575751" stroke-width="1.5" />
+
+        <g font-family="IBM Plex Mono, monospace" font-size="10" fill="#7a7a72" text-anchor="end">
+          <text x="50" y="38">3000m</text>
+          <text x="50" y="78">2500m</text>
+          <text x="50" y="118">2000m</text>
+          <text x="50" y="158">1500m</text>
+          <text x="50" y="198">1000m</text>
+          <text x="50" y="238">500m</text>
+          <text x="50" y="278">0m</text>
+        </g>
+
+        <line x1="58" y1="25" x2="58" y2="275" stroke="#9e9e94" stroke-width="1" />
+
+        <g id="physMarker" transform="translate(0, 275)">
+          <line x1="64" y1="0" x2="145" y2="0" stroke="#1e4d6b" stroke-width="1.5" stroke-dasharray="4 2" />
+          <text x="66" y="-5" font-family="IBM Plex Mono, monospace" font-size="9" fill="#1e4d6b">FÍSICA</text>
+        </g>
+
+        <g id="droneMarker" transform="translate(0, 275)">
+          <line x1="58" y1="0" x2="255" y2="0" stroke="#d94e1f" stroke-width="1.5" />
+          <g transform="translate(175, -10)" stroke="#161614" stroke-width="1.5" fill="none">
+            <rect x="14" y="6" width="16" height="6" rx="1" fill="#d94e1f" stroke="none" />
+            <line x1="6" y1="9" x2="38" y2="9" />
+            <line x1="2" y1="5" x2="14" y2="5" stroke-width="2" />
+            <line x1="30" y1="5" x2="42" y2="5" stroke-width="2" />
+            <path d="M15 12 L12 17 M29 12 L32 17" stroke-width="1.2" />
+          </g>
+          <text x="252" y="-5" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="#d94e1f" text-anchor="end" id="svgAltLabel">0 m</text>
+        </g>
+      </svg>
+
+      <div class="model-specs">
+        <span>Capas: 2→32→32→1</span>
+        <span>Act: ReLU / Lineal</span>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script>
+  let modelo = null;
+
+  const T_MIN = -5.0, T_MAX = 40.0;
+  const P_MIN = 650.0, P_MAX = 1020.0;
+  const H_MAX = 3000.0;
+
+  async function cargarPesosBinariosManual() {
+    // Carga directa de model.json y group1-shard1of1.bin inyectando los tensores por orden
+    const respJson = await fetch('model.json');
+    const manifest = await respJson.json();
+    const respBin = await fetch('group1-shard1of1.bin');
+    const buffer = await respBin.arrayBuffer();
+    const floatData = new Float32Array(buffer);
+
+    const red = tf.sequential();
+    red.add(tf.layers.dense({ units: 32, activation: 'relu', inputShape: [2] }));
+    red.add(tf.layers.dense({ units: 32, activation: 'relu' }));
+    red.add(tf.layers.dense({ units: 1 }));
+
+    const specs = manifest.weightsManifest[0].weights;
+    let offset = 0;
+    const tensores = specs.map(w => {
+      const size = w.shape.reduce((a, b) => a * b, 1);
+      const slice = floatData.slice(offset, offset + size);
+      offset += size;
+      return tf.tensor(slice, w.shape);
+    });
+
+    red.setWeights(tensores);
+    return red;
+  }
+
+  async function entrenarRespaldoLocal() {
+    // Entrenamiento rápido en navegador si se abre directamente como file:// sin servidor HTTP
+    const red = tf.sequential();
+    red.add(tf.layers.dense({ units: 32, activation: 'relu', inputShape: [2] }));
+    red.add(tf.layers.dense({ units: 32, activation: 'relu' }));
+    red.add(tf.layers.dense({ units: 1 }));
+    red.compile({ optimizer: tf.train.adam(0.01), loss: 'meanSquaredError' });
+
+    const xs = [];
+    const ys = [];
+    for (let i = 0; i < 600; i++) {
+      const t = -5 + Math.random() * 45;
+      const h = Math.random() * 3000;
+      const p = 1013.25 * Math.pow(1 - (0.0065 * h) / (t + 273.15), 5.255);
+      xs.push([(t - T_MIN) / (T_MAX - T_MIN), (p - P_MIN) / (P_MAX - P_MIN)]);
+      ys.push([h / H_MAX]);
+    }
+
+    const tX = tf.tensor2d(xs);
+    const tY = tf.tensor2d(ys);
+    await red.fit(tX, tY, { epochs: 60, batchSize: 32, verbose: 0 });
+    tX.dispose();
+    tY.dispose();
+    return red;
+  }
+
+  async function inicializarModelo() {
+    try {
+      modelo = await tf.loadLayersModel('model.json');
+    } catch (_) {
+      try {
+        modelo = await cargarPesosBinariosManual();
+      } catch (__) {
+        modelo = await entrenarRespaldoLocal();
+      }
+    }
+    actualizarCalculo();
+  }
+
+  function calcularAlturaFisica(tempC, presHpa) {
+    if (presHpa <= 0) return 0;
+    const h = ((tempC + 273.15) / 0.0065) * (1 - Math.pow(presHpa / 1013.25, 1 / 5.255));
+    return Math.max(0, h);
+  }
+
+  function actualizarMarcadoresSVG(altRed, altFisica) {
+    const clampRed = Math.min(3000, Math.max(0, altRed));
+    const clampFis = Math.min(3000, Math.max(0, altFisica));
+
+    const yRed = 275 - (clampRed / 3000) * 240;
+    const yFis = 275 - (clampFis / 3000) * 240;
+
+    document.getElementById('droneMarker').setAttribute('transform', `translate(0, ${yRed.toFixed(1)})`);
+    document.getElementById('physMarker').setAttribute('transform', `translate(0, ${yFis.toFixed(1)})`);
+    document.getElementById('svgAltLabel').textContent = `${altRed.toFixed(0)} m`;
+  }
+
+  function actualizarCalculo() {
+    const temp = parseFloat(document.getElementById('tempNum').value);
+    const pres = parseFloat(document.getElementById('presNum').value);
+
+    if (Number.isNaN(temp) || Number.isNaN(pres)) return;
+
+    document.getElementById('tempWarn').classList.toggle('visible', temp < T_MIN || temp > T_MAX);
+    document.getElementById('presWarn').classList.toggle('visible', pres < P_MIN || pres > P_MAX);
+
+    const altFisica = calcularAlturaFisica(temp, pres);
+    document.getElementById('physAltitude').textContent = `${altFisica.toFixed(1)} m`;
+
+    if (!modelo) return;
+
+    const tNorm = (temp - T_MIN) / (T_MAX - T_MIN);
+    const pNorm = (pres - P_MIN) / (P_MAX - P_MIN);
+
+    const altRed = tf.tidy(() => {
+      const entrada = tf.tensor2d([[tNorm, pNorm]]);
+      const salida = modelo.predict(entrada);
+      const valNorm = salida.dataSync()[0];
+      return Math.max(0, valNorm * H_MAX);
+    });
+
+    const diferencia = Math.abs(altRed - altFisica);
+
+    document.getElementById('predAltitude').textContent = altRed.toFixed(1);
+    document.getElementById('deltaAltitude').textContent = `± ${diferencia.toFixed(1)} m`;
+
+    actualizarMarcadoresSVG(altRed, altFisica);
+  }
+
+  function enlazarControl(rangeId, numId) {
+    const rangeEl = document.getElementById(rangeId);
+    const numEl = document.getElementById(numId);
+
+    rangeEl.addEventListener('input', () => {
+      numEl.value = rangeEl.value;
+      actualizarCalculo();
+    });
+
+    numEl.addEventListener('input', () => {
+      rangeEl.value = numEl.value;
+      actualizarCalculo();
+    });
+  }
+
+  enlazarControl('tempRange', 'tempNum');
+  enlazarControl('presRange', 'presNum');
+  inicializarModelo();
+</script>
+</body>
+</html>
